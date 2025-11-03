@@ -2,7 +2,15 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
 
-const discord = require("discord.js");
+const {
+    AttachmentBuilder,
+    Client,
+    GatewayIntentBits,
+    Partials,
+    REST,
+    Routes,
+    SlashCommandBuilder
+} = require("discord.js");
 const fs = require("fs");
 const axios = require("axios").default;
 const path = require("path");
@@ -25,24 +33,61 @@ var connection = mysql.createConnection({
 
 connection.connect();
 
-const bot = new discord.Client({
-    ws: {
-        intents: [
-            "GUILDS",
-            "GUILD_MEMBERS",
-            "GUILD_MESSAGES",
-            "GUILD_MESSAGE_REACTIONS",
-            "GUILD_BANS",
-            "GUILD_INVITES",
-            "GUILD_PRESENCES",
-            "DIRECT_MESSAGES",
-            "DIRECT_MESSAGE_REACTIONS"
-        ]
-    }
+const RIITAG_BASE_URL = "https://riitag.t0g3pii.de";
+
+const rest = new REST({ version: "10" }).setToken(config.token);
+
+const bot = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildBans,
+        GatewayIntentBits.GuildInvites,
+        GatewayIntentBits.GuildPresences,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.DirectMessageReactions
+    ],
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
+
+async function registerSlashCommands() {
+    if (!config.clientId) {
+        console.warn("clientId fehlt in config.json – Slash-Commands werden nicht registriert.");
+        return;
+    }
+
+    const commands = [
+        new SlashCommandBuilder()
+            .setName("riitag")
+            .setDescription("Zeigt das RiiTag-Bild eines Nutzers")
+            .addUserOption(option =>
+                option
+                    .setName("user")
+                    .setDescription("Discord-Nutzer, dessen RiiTag angezeigt werden soll")
+                    .setRequired(false)
+            )
+            .addStringOption(option =>
+                option
+                    .setName("id")
+                    .setDescription("Discord-ID, falls kein Nutzer ausgewählt werden kann")
+                    .setRequired(false)
+            )
+            .toJSON()
+    ];
+
+    try {
+        await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
+        console.log("Slash-Commands erfolgreich registriert.");
+    } catch (error) {
+        console.error("Registrierung der Slash-Commands fehlgeschlagen:", error);
+    }
+}
 
 bot.on("ready", () => {
     console.log("Bot connected");
+    registerSlashCommands();
 });
 
 bot.on("presenceUpdate", (_, presence) => {
@@ -51,8 +96,7 @@ bot.on("presenceUpdate", (_, presence) => {
             const gameRegex = /(.*)\((.*)\)/;
             const regexRes = gameRegex.exec(activity.details);
             if (!regexRes) return;
-            const gameID = regexRes[2];
-            const game = regexRes[1];
+            let gameID = regexRes[2];
             if (gameID.includes(",")) {
                 gameID = gameID.split(",")[0];
                 console.log(gameID);
@@ -70,7 +114,7 @@ bot.on("presenceUpdate", (_, presence) => {
                     return;
                 }
                 try {
-                    var url = `http://tag.rc24.xyz/wii?key=${key}&game=${gameID}`;
+                    var url = `${RIITAG_BASE_URL}/wii?key=${key}&game=${gameID}`;
                     //console.log(url);
                     var res = await axios.get(encodeURI(url));
                     if (res.status == 200) {
@@ -85,7 +129,8 @@ bot.on("presenceUpdate", (_, presence) => {
                 console.log("No Game ID detected");
             }
         }
-        if (activity.name == "citra" || activity.name == "Nintendo 3DS" || activity.name.includes("(3DS)")) {
+        if (activity.name == "citra" || activity.name == "Nintendo 3DS" || activity.name.includes("(3DS)") || activity.name.includes("-3DS")) {
+            let currGame;
             if (activity.name == "citra") {
                 currGame = activity.state;
             }
@@ -104,7 +149,7 @@ bot.on("presenceUpdate", (_, presence) => {
                 }
 
                 try {
-                    var url = `http://tag.rc24.xyz/3ds?key=${key}&gameName=${currGame}`;
+                    var url = `${RIITAG_BASE_URL}/3ds?key=${key}&gameName=${currGame}`;
                     //console.log(url);
                     var res = await axios.get(encodeURI(url));
                     if (res.status == 200) {
@@ -120,7 +165,7 @@ bot.on("presenceUpdate", (_, presence) => {
             }
         }
         if (activity.name == "Cemu") {
-            currGame = activity.state;
+            let currGame = activity.state;
             if ( currGame && currGame != "Idling" ) {
                 currGame = currGame.replace("Playing", "").trim().replace(/&/g, "%26");
                 var key = await getKey(presence.user.id);
@@ -129,7 +174,7 @@ bot.on("presenceUpdate", (_, presence) => {
                     return;
                 }
                 try {
-                    var url = `http://tag.rc24.xyz/wiiu?key=${key}&origin=Cemu&gameTID=${currGame}`;
+                    var url = `${RIITAG_BASE_URL}/wiiu?key=${key}&origin=Cemu&gameTID=${currGame}`;
                     //console.log(url);
                     var res = await axios.get(encodeURI(url));
                     if (res.status == 200) {
@@ -145,6 +190,7 @@ bot.on("presenceUpdate", (_, presence) => {
             }
         }
         if (activity.name == "Nintendo Switch" || activity.name == "Switch") {
+            let currGame;
             if (activity.name == "Nintendo Switch") {
                 currGame = activity.details;
             }
@@ -160,7 +206,7 @@ bot.on("presenceUpdate", (_, presence) => {
                 }
 
                 try {
-                    var url = `http://tag.rc24.xyz/switch?key=${key}&gameName=${currGame}`;
+                    var url = `${RIITAG_BASE_URL}/switch?key=${key}&gameName=${currGame}`;
                     //console.log(url);
                     var res = await axios.get(encodeURI(url));
                     if (res.status == 200) {
@@ -176,7 +222,7 @@ bot.on("presenceUpdate", (_, presence) => {
             }
         }
         if (activity.name == "Yuzu") {
-            currGame = activity.state;
+            let currGame = activity.state;
             if ( currGame && currGame != "Currently not in game" ) {
                 currGame = currGame.trim().replace(/&/g, "%26");
                 var key = await getKey(presence.user.id);
@@ -184,7 +230,7 @@ bot.on("presenceUpdate", (_, presence) => {
                     console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
                     return;
                 }
-                var url = `http://tag.rc24.xyz/switch?key=${key}&game=${currGame}&source=Yuzu`;
+                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Yuzu`;
                 //console.log(url);
                 var res = await axios.get(encodeURI(url));
                 if (res.status == 200) {
@@ -197,7 +243,7 @@ bot.on("presenceUpdate", (_, presence) => {
             }
         }
         if (activity.name == "Ryujinx") {
-            currGame = activity.state;
+            let currGame = activity.state;
             if ( currGame && currGame != "Idling" ) {
                 currGame = currGame.replace("Playing", "").trim().replace(/&/g, "%26");
                 var key = await getKey(presence.user.id);
@@ -205,7 +251,7 @@ bot.on("presenceUpdate", (_, presence) => {
                     console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
                     return;
                 }
-                var url = `http://tag.rc24.xyz/switch?key=${key}&game=${currGame}&source=Ryujinx`;
+                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Ryujinx`;
                 //console.log(url);
                 var res = await axios.get(encodeURI(url));
                 if (res.status == 200) {
@@ -220,14 +266,69 @@ bot.on("presenceUpdate", (_, presence) => {
     });
 });
 
+bot.on("interactionCreate", async interaction => {
+    if (!interaction.isChatInputCommand() || interaction.commandName !== "riitag") {
+        return;
+    }
+
+    const userOption = interaction.options.getUser("user");
+    const idOption = interaction.options.getString("id");
+
+    let targetId = userOption?.id ?? null;
+
+    if (!targetId && idOption) {
+        const sanitized = sanitizeDiscordId(idOption);
+        if (/^\d{17,20}$/.test(sanitized)) {
+            targetId = sanitized;
+        } else {
+            await interaction.reply({ content: "Bitte gib eine gültige Discord-ID an.", ephemeral: true });
+            return;
+        }
+    }
+
+    if (!targetId) {
+        await interaction.reply({ content: "Bitte gib einen Nutzer oder eine ID an.", ephemeral: true });
+        return;
+    }
+
+    const displayLabel = userOption
+        ? (userOption.discriminator === "0" ? `@${userOption.username}` : userOption.tag)
+        : targetId;
+    const imageUrl = `${RIITAG_BASE_URL}/${targetId}/tag.max.png`;
+
+    try {
+        await interaction.deferReply();
+        const response = await axios.get(imageUrl, { responseType: "arraybuffer" });
+        const attachment = new AttachmentBuilder(Buffer.from(response.data), { name: `riitag-${targetId}.png` });
+        await interaction.editReply({ content: `RiiTag for <@${targetId}>`, files: [attachment] });
+        console.log(`RiiTag for ${targetId} requested by ${interaction.user.username}`);
+    } catch (error) {
+        console.log(`Error occurred during the request: ${error.message}`);
+        const status = error.response?.status;
+        const message = status === 404
+            ? "Für diesen Nutzer wurde kein RiiTag gefunden."
+            : "Beim Abrufen des RiiTag ist ein Fehler aufgetreten.";
+
+        if (interaction.deferred || interaction.replied) {
+            await interaction.editReply({ content: message });
+        } else {
+            await interaction.reply({ content: message, ephemeral: true });
+        }
+    }
+});
+
 bot.on("messageReactionAdd", (reaction, user) => {
     console.log("Hi there!!");
     console.log(reaction.emoji);
-    if (reaction.message.author.id == bot.user.id && reaction.emoji == bot.emojis.resolve("🚫")) {
+    if (reaction.message.author.id == bot.user.id && reaction.emoji.name === "🚫") {
         console.log(`${user.username} opted out of future RiiTag notifications.`);
 
     }
 });
+
+function sanitizeDiscordId(input) {
+    return input.replace(/[<@!>]/g, "").trim();
+}
 
 function saveConfig() {
     fs.writeFileSync("config.json", JSON.stringify(config, null, 4));
