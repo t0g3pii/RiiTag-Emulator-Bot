@@ -9,7 +9,8 @@ const {
     Partials,
     REST,
     Routes,
-    SlashCommandBuilder
+    SlashCommandBuilder,
+    MessageFlags
 } = require("discord.js");
 const fs = require("fs");
 const axios = require("axios").default;
@@ -24,14 +25,13 @@ if (!fs.existsSync("./config.json")) {
 
 const config = JSON.parse(fs.readFileSync("./config.json"));
 
-var connection = mysql.createConnection({
+var pool = mysql.createPool({
   host     : config.host,
   user     : config.user,
   password : config.password,
-  database : config.database
+  database : config.database,
+  connectionLimit: 10
 });
-
-connection.connect();
 
 const RIITAG_BASE_URL = "https://riitag.t0g3pii.de";
 
@@ -61,17 +61,17 @@ async function registerSlashCommands() {
     const commands = [
         new SlashCommandBuilder()
             .setName("riitag")
-            .setDescription("Zeigt das RiiTag-Bild eines Nutzers")
+            .setDescription("Shows the RiiTag of a user")
             .addUserOption(option =>
                 option
                     .setName("user")
-                    .setDescription("Discord-Nutzer, dessen RiiTag angezeigt werden soll")
+                    .setDescription("Discord user, whose RiiTag should be shown")
                     .setRequired(false)
             )
             .addStringOption(option =>
                 option
                     .setName("id")
-                    .setDescription("Discord-ID, falls kein Nutzer ausgewählt werden kann")
+                    .setDescription("Discord ID, if no user can be selected")
                     .setRequired(false)
             )
             .toJSON()
@@ -79,13 +79,13 @@ async function registerSlashCommands() {
 
     try {
         await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
-        console.log("Slash-Commands erfolgreich registriert.");
+        console.log("Slash commands successfully registered.");
     } catch (error) {
-        console.error("Registrierung der Slash-Commands fehlgeschlagen:", error);
+        console.error("Registering slash commands failed:", error);
     }
 }
 
-bot.on("ready", () => {
+bot.once("clientReady", () => {
     console.log("Bot connected");
     registerSlashCommands();
 });
@@ -123,10 +123,10 @@ bot.on("presenceUpdate", (_, presence) => {
                         console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.details}.`);
                     }
                 } catch (error) {
-                    console.log(`Error occurred during the request: ${error.message}`);
+                    console.log(`Error occurred during the request for dolphin emulator presence update: ${error.message}`);
                 }
             } else {
-                console.log("No Game ID detected");
+                console.log("No Game ID detected for dolphin emulator presence update");
             }
         }
         if (activity.name == "citra" || activity.name == "Nintendo 3DS" || activity.name.includes("(3DS)") || activity.name.includes("-3DS")) {
@@ -158,10 +158,10 @@ bot.on("presenceUpdate", (_, presence) => {
                         console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${currGame}.`);
                     }
                 } catch (error) {
-                    console.log(`Error occurred during the request: ${error.message}`);
+                    console.log(`Error occurred during the request for citra presence update: ${error.message}`);
                 }
             } else {
-                console.log("No Game detected");
+                console.log("No Game detected for citra presence update");
             }
         }
         if (activity.name == "Cemu") {
@@ -183,10 +183,10 @@ bot.on("presenceUpdate", (_, presence) => {
                         console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${currGame}.`);
                     }
                 } catch (error) {
-                    console.log(`Error occurred during the request: ${error.message}`);
+                    console.log(`Error occurred during the request for cemu presence update: ${error.message}`);
                 }
             } else {
-                console.log("No Game detected");
+                console.log("No Game detected for cemu presence update");
             }
         }
         if (activity.name == "Nintendo Switch" || activity.name == "Switch") {
@@ -215,10 +215,10 @@ bot.on("presenceUpdate", (_, presence) => {
                         console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${currGame}.`);
                     }
                 } catch (error) {
-                    console.log(`Error occurred during the request: ${error.message}`);
+                    console.log(`Error occurred during the request for switch presence update: ${error.message}`);
                 }
             } else {
-                console.log("No Game detected");
+                console.log("No Game detected for switch presence update");
             }
         }
         if (activity.name == "Yuzu") {
@@ -236,10 +236,10 @@ bot.on("presenceUpdate", (_, presence) => {
                 if (res.status == 200) {
                     console.log(`${presence.user.username} is now playing ${activity.state}.`);
                 } else {
-                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}}.`);
+                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for yuzu.`);
                 }
             } else {
-                console.log("No Game detected");
+                console.log("No Game detected for yuzu presence update");
             }
         }
         if (activity.name == "Ryujinx") {
@@ -257,10 +257,10 @@ bot.on("presenceUpdate", (_, presence) => {
                 if (res.status == 200) {
                     console.log(`${presence.user.username} is now playing ${activity.state}.`);
                 } else {
-                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}}.`);
+                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for ryujinx.`);
                 }
             } else {
-                console.log("No Game detected");
+                console.log("No Game detected for ryujinx presence update");
             }
         }
     });
@@ -281,13 +281,13 @@ bot.on("interactionCreate", async interaction => {
         if (/^\d{17,20}$/.test(sanitized)) {
             targetId = sanitized;
         } else {
-            await interaction.reply({ content: "Bitte gib eine gültige Discord-ID an.", ephemeral: true });
+            await interaction.reply({ content: "Please provide a valid Discord ID.", flags: MessageFlags.Ephemeral });
             return;
         }
     }
 
     if (!targetId) {
-        await interaction.reply({ content: "Bitte gib einen Nutzer oder eine ID an.", ephemeral: true });
+        await interaction.reply({ content: "Please provide a user or a Discord ID.", flags: MessageFlags.Ephemeral });
         return;
     }
 
@@ -306,23 +306,32 @@ bot.on("interactionCreate", async interaction => {
         console.log(`Error occurred during the request: ${error.message}`);
         const status = error.response?.status;
         const message = status === 404
-            ? "Für diesen Nutzer wurde kein RiiTag gefunden."
-            : "Beim Abrufen des RiiTag ist ein Fehler aufgetreten.";
+            ? "For this user no RiiTag was found."
+            : "An error occurred while retrieving the RiiTag.";
 
         if (interaction.deferred || interaction.replied) {
             await interaction.editReply({ content: message });
         } else {
-            await interaction.reply({ content: message, ephemeral: true });
+            await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
         }
     }
 });
 
-bot.on("messageReactionAdd", (reaction, user) => {
-    console.log("Hi there!!");
-    console.log(reaction.emoji);
-    if (reaction.message.author.id == bot.user.id && reaction.emoji.name === "🚫") {
-        console.log(`${user.username} opted out of future RiiTag notifications.`);
+bot.on("messageReactionAdd", async (reaction, user) => {
+    try {
+        if (reaction.partial) await reaction.fetch();
+        if (reaction.message.partial) await reaction.message.fetch();
+    } catch (err) {
+        console.warn("Could not resolve reaction partial:", err);
+        return;
+    }
 
+    if (!reaction.message || !reaction.message.author || !bot.user) return;
+    if (user && user.bot) return;
+
+    if (reaction.message.author.id === bot.user.id && reaction.emoji.name === "🚫") {
+        console.log(`${user?.username || "Unknown"} opted out of future RiiTag requests.`);
+        // Hier ggf. Persistenz/Opt-out-Logik ergänzen
     }
 });
 
@@ -336,11 +345,12 @@ function saveConfig() {
 
 async function getKey(id) {
     return new Promise((resolve, reject) => {
-        connection.query("SELECT randkey from `user` WHERE `username` = ?", [id], function (err, res, fields) {
-           if (err) return reject(err);
-           return resolve(res[0].randkey);
+        pool.query("SELECT randkey FROM `user` WHERE `username` = ?", [id], function (err, res) {
+            if (err) return reject(err);
+            if (!res || res.length === 0 || !res[0] || !res[0].randkey) return resolve(null);
+            return resolve(res[0].randkey);
         });
-    })
+    });
 }
 
 bot.login(config.token);
