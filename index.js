@@ -24,6 +24,11 @@ if (!fs.existsSync("./config.json")) {
 }
 
 const config = JSON.parse(fs.readFileSync("./config.json"));
+const switchRpcApplicationIds = new Set(
+    Array.isArray(config.switchRpcApplicationIds)
+        ? config.switchRpcApplicationIds.map(id => id.toString())
+        : []
+);
 
 var pool = mysql.createPool({
   host     : config.host,
@@ -78,7 +83,7 @@ async function registerSlashCommands() {
     ];
 
     try {
-        await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
+        //await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
         console.log("Slash commands successfully registered.");
     } catch (error) {
         console.error("Registering slash commands failed:", error);
@@ -128,8 +133,7 @@ bot.on("presenceUpdate", (_, presence) => {
             } else {
                 console.log("No Game ID detected for dolphin emulator presence update");
             }
-        }
-        if (activity.name == "citra" || activity.name == "Nintendo 3DS" || activity.name.includes("(3DS)") || activity.name.includes("-3DS")) {
+        } else if (activity.name == "citra" || activity.name == "Nintendo 3DS" || activity.name.includes("(3DS)") || activity.name.includes("-3DS")) {
             let currGame;
             if (activity.name == "citra") {
                 currGame = activity.state;
@@ -163,8 +167,7 @@ bot.on("presenceUpdate", (_, presence) => {
             } else {
                 console.log("No Game detected for citra presence update");
             }
-        }
-        if (activity.name == "Cemu") {
+        } else if (activity.name == "Cemu") {
             let currGame = activity.state;
             if ( currGame && currGame != "Idling" ) {
                 currGame = currGame.replace("Playing", "").trim().replace(/&/g, "%26");
@@ -188,8 +191,47 @@ bot.on("presenceUpdate", (_, presence) => {
             } else {
                 console.log("No Game detected for cemu presence update");
             }
-        }
-        if (activity.name == "Nintendo Switch" || activity.name == "Switch") {
+        } else if (activity.name == "Yuzu") {
+            let currGame = activity.state;
+            if ( currGame && currGame != "Currently not in game" ) {
+                currGame = currGame.trim().replace(/&/g, "%26");
+                var key = await getKey(presence.user.id);
+                if (!key) {
+                    console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
+                    return;
+                }
+                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Yuzu`;
+                //console.log(url);
+                var res = await axios.get(encodeURI(url));
+                if (res.status == 200) {
+                    console.log(`${presence.user.username} is now playing ${activity.state}.`);
+                } else {
+                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for yuzu.`);
+                }
+            } else {
+                console.log("No Game detected for yuzu presence update");
+            }
+        } else if (activity.name == "Ryujinx") {
+            let currGame = activity.state;
+            if ( currGame && currGame != "Idling" ) {
+                currGame = currGame.replace("Playing", "").trim().replace(/&/g, "%26");
+                var key = await getKey(presence.user.id);
+                if (!key) {
+                    console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
+                    return;
+                }
+                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Ryujinx`;
+                //console.log(url);
+                var res = await axios.get(encodeURI(url));
+                if (res.status == 200) {
+                    console.log(`${presence.user.username} is now playing ${activity.state}.`);
+                } else {
+                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for ryujinx.`);
+                }
+            } else {
+                console.log("No Game detected for ryujinx presence update");
+            }
+        } else if (activity.name == "Nintendo Switch" || activity.name == "Switch") {
             let currGame;
             if (activity.name == "Nintendo Switch") {
                 currGame = activity.details;
@@ -220,47 +262,34 @@ bot.on("presenceUpdate", (_, presence) => {
             } else {
                 console.log("No Game detected for switch presence update");
             }
-        }
-        if (activity.name == "Yuzu") {
-            let currGame = activity.state;
-            if ( currGame && currGame != "Currently not in game" ) {
-                currGame = currGame.trim().replace(/&/g, "%26");
+        } else if (
+            // Switch RPC fallback: known applicationId or heuristic via assets.largeText
+            (
+                (activity.applicationId && switchRpcApplicationIds.has(activity.applicationId.toString())) ||
+                (activity.assets && typeof activity.assets.largeText === 'string' && /nintendo switch/i.test(activity.assets.largeText))
+            )
+        ) {
+            let currGame = activity.name;
+            if (currGame) {
+                currGame = currGame.replace(/&/g, "%26").replace("\n", " ");
                 var key = await getKey(presence.user.id);
                 if (!key) {
                     console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
                     return;
                 }
-                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Yuzu`;
-                //console.log(url);
-                var res = await axios.get(encodeURI(url));
-                if (res.status == 200) {
-                    console.log(`${presence.user.username} is now playing ${activity.state}.`);
-                } else {
-                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for yuzu.`);
+                try {
+                    var url = `${RIITAG_BASE_URL}/switch?key=${key}&gameName=${currGame}`;
+                    var res = await axios.get(encodeURI(url));
+                    if (res.status == 200) {
+                        console.log(`${presence.user.username} is now playing ${currGame}.`);
+                    } else {
+                        console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${currGame}.`);
+                    }
+                } catch (error) {
+                    console.log(`Error occurred during the request for switch presence update (RPC app): ${error.message}`);
                 }
             } else {
-                console.log("No Game detected for yuzu presence update");
-            }
-        }
-        if (activity.name == "Ryujinx") {
-            let currGame = activity.state;
-            if ( currGame && currGame != "Idling" ) {
-                currGame = currGame.replace("Playing", "").trim().replace(/&/g, "%26");
-                var key = await getKey(presence.user.id);
-                if (!key) {
-                    console.log(`${presence.user.username} does not have a registered account on RiiTag.`);
-                    return;
-                }
-                var url = `${RIITAG_BASE_URL}/switch?key=${key}&game=${currGame}&source=Ryujinx`;
-                //console.log(url);
-                var res = await axios.get(encodeURI(url));
-                if (res.status == 200) {
-                    console.log(`${presence.user.username} is now playing ${activity.state}.`);
-                } else {
-                    console.log(`Request for ${presence.user.username} failed with response code ${res.status} for game ${activity.state}} for ryujinx.`);
-                }
-            } else {
-                console.log("No Game detected for ryujinx presence update");
+                console.log("No Game detected for switch presence update (RPC app)");
             }
         }
     });

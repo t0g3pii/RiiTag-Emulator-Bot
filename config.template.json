@@ -4,5 +4,6 @@
     "password": "MYSQL PASSWORD GOES HERE",
     "database": "MYSQL DATABASE GOES HERE",
     "token": "TOKEN GOES HERE",
-    "clientId": "DISCORD APPLICATION CLIENT ID GOES HERE"
+    "clientId": "DISCORD APPLICATION CLIENT ID GOES HERE",
+    "switchRpcApplicationIds": []
 }
